@@ -1,0 +1,30 @@
+name: ExpBookPlugin
+version: 1.0.0
+main: com.magicbili.expbook.ExpBookPlugin
+api-version: 1.16
+folia-supported: true
+commands:
+  expbook:
+    description: Manage experience books
+    usage: /expbook [give|list|reload]
+    permission: expbook.admin
+    permission-message: You don't have permission to use this command!
+permissions:
+  expbook.admin:
+    description: Allows all expbook commands
+    default: op
+  expbook.reload:
+    description: Allows reloading the plugin
+    default: op
+  expbook.give:
+    description: Allows giving experience books
+    default: op
+  expbook.common:
+    description: Allows using common experience books
+    default: true
+  expbook.advanced:
+    description: Allows using advanced experience books
+    default: true
+  expbook.shared:
+    description: Allows using shared experience books
+    default: true

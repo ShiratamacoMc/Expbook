@@ -1,0 +1,64 @@
+# ====================================
+# ExpBook Plugin Configuration
+# ====================================
+
+# Configuration version - DO NOT MODIFY THIS
+config-version: 2
+
+# Language Configuration
+# Supported languages: en (English), zh_CN (Simplified Chinese)
+# Change this to your preferred language
+language: en
+
+# Database Configuration
+database:
+  host: localhost
+  port: 3306
+  database: minecraft
+  username: root
+  password: ""
+  table_prefix: expbook_
+
+# Experience Book Configuration
+books:
+  common_book:
+    display_name: "&aCommon Experience Book"
+    material: PAPER
+    custom_model_data: 1000
+    max_storage: 1000
+    permission: expbook.common
+    bind_player: true
+    lore:
+      - "&7Stored XP: {stored_exp}/{max_storage}"
+      - "&7Owner: {owner}"
+      - ""
+      - "&eRight Click &7- &6Withdraw All XP"
+      - "&eSneak + Right Click &7- &6Store XP"
+  
+  advanced_book:
+    display_name: "&bAdvanced Experience Book"
+    material: BOOK
+    custom_model_data: 1001
+    max_storage: 5000
+    permission: expbook.advanced
+    bind_player: true
+    lore:
+      - "&7Stored XP: {stored_exp}/{max_storage}"
+      - "&7Owner: {owner}"
+      - ""
+      - "&eRight Click &7- &6Withdraw All XP"
+      - "&eSneak + Right Click &7- &6Store XP"
+  
+  shared_book:
+    display_name: "&dShared Experience Book"
+    material: ENCHANTED_BOOK
+    custom_model_data: 1002
+    max_storage: 2000
+    permission: expbook.shared
+    bind_player: false
+    lore:
+      - "&7Stored XP: {stored_exp}/{max_storage}"
+      - "&7Can be used by anyone"
+      - ""
+      - "&eRight Click &7- &6Withdraw All XP"
+      - "&eSneak + Right Click &7- &6Store XP"
