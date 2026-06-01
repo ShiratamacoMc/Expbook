@@ -34,9 +34,17 @@ A high-performance Minecraft plugin that allows players to store and withdraw ex
 
 1. Download `ExpBookPlugin-1.0.2.jar`
 2. Place the jar file in your server's `plugins` folder
-3. Start the server to generate configuration files
-4. Edit `plugins/ExpBookPlugin/config.yml` to configure database connection and language
-5. Run `/expbook reload` to apply changes
+3. Start the server - **Paper/Folia will automatically download required libraries**
+4. Configuration files will be generated in `plugins/ExpBookPlugin/`
+5. Edit `plugins/ExpBookPlugin/config.yml` to configure database connection and language
+6. Run `/expbook reload` to apply changes
+
+**Note**: This plugin uses Paper's library loader feature. All dependencies (HikariCP, Caffeine, SQLite, MySQL driver) will be automatically downloaded on first startup. This keeps the plugin JAR very small (~50KB).
+
+**Requirements for automatic library loading**:
+- Paper 1.16.5+ or Folia
+- Internet connection on first startup (for downloading libraries)
+- Libraries are cached in `libraries/` folder and reused
 
 ## ⚙️ Configuration
 

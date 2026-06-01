@@ -7,6 +7,15 @@ author: MagicBili
 description: A plugin for storing and managing experience points in books with HikariCP connection pool and Caffeine cache
 website: https://github.com/addpromax/Expbook
 
+# 库依赖 - Paper 会自动下载这些依赖
+libraries:
+  - com.zaxxer:HikariCP:5.0.1
+  - org.slf4j:slf4j-api:2.0.7
+  - org.slf4j:slf4j-jdk14:2.0.7
+  - com.github.ben-manes.caffeine:caffeine:3.1.6
+  - org.xerial:sqlite-jdbc:3.42.0.0
+  - mysql:mysql-connector-java:8.0.28
+
 commands:
   expbook:
     description: Manage experience books
