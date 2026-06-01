@@ -6,11 +6,11 @@
 
     <groupId>com.magicbili</groupId>
     <artifactId>ExpBookPlugin</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <packaging>jar</packaging>
 
     <name>ExpBookPlugin</name>
-    <description>Experience Book Plugin for Minecraft</description>
+    <description>Experience Book Plugin for Minecraft with HikariCP and Caffeine</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -42,6 +42,41 @@
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
             <version>${mysql.version}</version>
+        </dependency>
+        
+        <!-- SQLite 连接器 -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.42.0.0</version>
+        </dependency>
+        
+        <!-- HikariCP 连接池 -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.0.1</version>
+        </dependency>
+        
+        <!-- SLF4J API (HikariCP 依赖) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.7</version>
+        </dependency>
+        
+        <!-- SLF4J 到 JUL 的桥接 -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>2.0.7</version>
+        </dependency>
+        
+        <!-- Caffeine 缓存 -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.1.6</version>
         </dependency>
     </dependencies>
 
@@ -77,6 +112,21 @@
                                     <pattern>com.mysql</pattern>
                                     <shadedPattern>com.magicbili.shaded.mysql</shadedPattern>
                                 </relocation>
+                                <!-- 重定位 HikariCP 避免冲突 -->
+                                <relocation>
+                                    <pattern>com.zaxxer.hikari</pattern>
+                                    <shadedPattern>com.magicbili.shaded.hikari</shadedPattern>
+                                </relocation>
+                                <!-- 重定位 SLF4J 避免冲突 -->
+                                <relocation>
+                                    <pattern>org.slf4j</pattern>
+                                    <shadedPattern>com.magicbili.shaded.slf4j</shadedPattern>
+                                </relocation>
+                                <!-- 重定位 Caffeine 避免冲突 -->
+                                <relocation>
+                                    <pattern>com.github.benmanes.caffeine</pattern>
+                                    <shadedPattern>com.magicbili.shaded.caffeine</shadedPattern>
+                                </relocation>
                             </relocations>
                             <filters>
                                 <filter>
@@ -86,6 +136,13 @@
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
                                     </excludes>
+                                </filter>
+                                <!-- 保留 SQLite 本地库 -->
+                                <filter>
+                                    <artifact>org.xerial:sqlite-jdbc</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
                                 </filter>
                             </filters>
                         </configuration>

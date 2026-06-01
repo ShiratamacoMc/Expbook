@@ -1,4 +1,6 @@
 # English Messages Configuration
+
+# Player messages
 book_given: "&aYou have received a {book}!"
 no_permission: "&cYou don't have permission to use this experience book!"
 not_owner: "&cYou are not the owner of this experience book!"
@@ -9,16 +11,13 @@ book_empty: "&cThis experience book is empty!"
 invalid_book: "&cInvalid experience book detected and has been confiscated!"
 invalid_book_nbt: "&cCorrupted experience book detected (NBT data error) and has been confiscated!"
 invalid_book_type: "&cUnknown experience book type detected and has been confiscated!"
-max_storage: "&cCannot store more experience (Max: {max})"
 not_enough_exp: "&cYou don't have enough experience!"
-reload_success: "&aPlugin configuration has been reloaded!"
-no_reload_permission: "&cYou don't have permission to reload the plugin!"
-database_connection_failed: "&cDatabase connection failed! Please check the configuration."
-database_not_connected: "&cDatabase is not connected! Operation cancelled."
 
 # Book display text
 owner_unknown: "Unknown Player"
 owner_none: "None"
+
+# Command messages
 command_help_header: "&6===== Experience Book Plugin Help ====="
 command_help_give: "&e/expbook give <player> <book_type> - Give an experience book to a player"
 command_help_list: "&e/expbook list - List all available book types"
@@ -32,15 +31,6 @@ command_book_creation_failed: "&cFailed to create experience book!"
 command_book_given_sender: "&aGave {player} a {book}"
 command_list_header: "&6Available Experience Book Types:"
 command_list_entry: "&e- {id}: {name} &7(Material: {material}, Model: {model})"
+no_reload_permission: "&cYou don't have permission to reload the plugin!"
+reload_success: "&aPlugin configuration has been reloaded!"
 command_reload_error: "&cError while reloading: {error}"
-
-# Plugin startup messages
-plugin_enabled: "Experience Book Plugin has been enabled!"
-plugin_disabled: "Experience Book Plugin has been disabled!"
-database_connected: "Database connection successful!"
-database_connection_error: "Database connection failed"
-database_closed: "Database connection closed"
-database_close_error: "Error while closing database connection"
-detected_folia: "Detected Folia environment, using regionalized scheduler"
-detected_bukkit: "Detected Bukkit/Spigot/Paper environment, using traditional scheduler"
-config_reloaded: "Configuration and database connection have been reloaded!"

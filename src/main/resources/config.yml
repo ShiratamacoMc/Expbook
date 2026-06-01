@@ -11,13 +11,26 @@ config-version: 2
 language: en
 
 # Database Configuration
+# storage_type: mysql or sqlite
+# If mysql connection fails, it will automatically fallback to sqlite
 database:
+  storage_type: sqlite
+  # MySQL settings (only used when storage_type is mysql)
   host: localhost
   port: 3306
   database: minecraft
   username: root
   password: ""
   table_prefix: expbook_
+  
+# Performance Configuration
+performance:
+  # Enable caching to reduce database queries
+  enable_cache: true
+  # Operation cooldown in milliseconds (prevents rapid duplicate operations)
+  operation_cooldown_ms: 2000
+  # Book verification cache duration in seconds
+  verification_cache_seconds: 5
 
 # Experience Book Configuration
 books:

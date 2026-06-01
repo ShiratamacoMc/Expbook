@@ -1,24 +1,48 @@
 name: ExpBookPlugin
-version: 1.0.0
+version: 1.0.2
 main: com.magicbili.expbook.ExpBookPlugin
 api-version: 1.16
 folia-supported: true
+author: MagicBili
+description: A plugin for storing and managing experience points in books with HikariCP connection pool and Caffeine cache
+website: https://github.com/addpromax/Expbook
+
 commands:
   expbook:
     description: Manage experience books
-    usage: /expbook [give|list|reload]
-    permission: expbook.admin
-    permission-message: You don't have permission to use this command!
+    usage: /<command> [give|list|reload]
+    aliases: [eb, xpbook]
+
 permissions:
-  expbook.admin:
-    description: Allows all expbook commands
+  expbook.*:
+    description: Grants all ExpBook permissions
     default: op
+    children:
+      expbook.admin: true
+      expbook.give: true
+      expbook.reload: true
+      expbook.common: true
+      expbook.advanced: true
+      expbook.shared: true
+  expbook.admin:
+    description: Allows all expbook admin commands
+    default: op
+    children:
+      expbook.give: true
+      expbook.reload: true
   expbook.reload:
-    description: Allows reloading the plugin
+    description: Allows reloading the plugin configuration
     default: op
   expbook.give:
-    description: Allows giving experience books
+    description: Allows giving experience books to players
     default: op
+  expbook.use:
+    description: Allows using any experience book
+    default: true
+    children:
+      expbook.common: true
+      expbook.advanced: true
+      expbook.shared: true
   expbook.common:
     description: Allows using common experience books
     default: true

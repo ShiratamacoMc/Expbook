@@ -7,8 +7,6 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -20,159 +18,218 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
-import java.sql.*;
 import java.util.*;
 import java.util.logging.Level;
 
+/**
+ * ExpBook 主插件类
+ * 经验之书插件 - 允许玩家在书中存储和提取经验
+ * 
+ * @author MagicBili
+ * @version 1.0.2
+ */
 public class ExpBookPlugin extends JavaPlugin implements Listener {
     
-    private Connection connection;
-    private Map<String, BookConfig> bookConfigs = new HashMap<>();
-    private NamespacedKey bookIdKey;
-    private NamespacedKey bookTypeKey;
-    private NamespacedKey storedExpKey;
-    private NamespacedKey ownerKey;
+    // 管理器
+    private DatabaseManager databaseManager;
+    private CacheManager cacheManager;
     private LanguageManager languageManager;
     private ConfigManager configManager;
     private SchedulerAdapter scheduler;
     
+    // 配置
+    private Map<String, BookConfig> bookConfigs = new HashMap<>();
+    
+    // NBT 键
+    private NamespacedKey bookIdKey;
+    private NamespacedKey bookTypeKey;
+    private NamespacedKey storedExpKey;
+    private NamespacedKey ownerKey;
+    
     @Override
     public void onEnable() {
-        // 初始化调度器适配器
-        scheduler = new SchedulerAdapter(this);
-        
-        // 初始化配置管理器
-        configManager = new ConfigManager(this);
-        
-        // 初始化语言管理器
-        languageManager = new LanguageManager(this);
-        
-        // 加载配置（自动更新旧配置）
-        configManager.loadConfig();
-        
-        // 加载语言文件
-        languageManager.loadLanguage();
-        
-        // 检测运行环境
-        if (scheduler.isFolia()) {
-            getLogger().info(languageManager.getMessage("detected_folia"));
-        } else {
-            getLogger().info(languageManager.getMessage("detected_bukkit"));
+        try {
+            // 初始化调度器适配器
+            scheduler = new SchedulerAdapter(this);
+            
+            // 初始化配置管理器
+            configManager = new ConfigManager(this);
+            
+            // 初始化语言管理器
+            languageManager = new LanguageManager(this);
+            
+            // 初始化缓存管理器
+            cacheManager = new CacheManager();
+            
+            // 初始化数据库管理器
+            databaseManager = new DatabaseManager(this);
+            
+            // 加载配置（自动更新旧配置）
+            configManager.loadConfig();
+            
+            // 加载语言文件
+            languageManager.loadLanguage();
+            
+            // 检测运行环境
+            if (scheduler.isFolia()) {
+                getLogger().info("Detected Folia environment, using regionalized scheduler");
+            } else {
+                getLogger().info("Detected Bukkit/Spigot/Paper environment, using traditional scheduler");
+            }
+            
+            // 初始化命名空间键
+            bookIdKey = new NamespacedKey(this, "book_id");
+            bookTypeKey = new NamespacedKey(this, "book_type");
+            storedExpKey = new NamespacedKey(this, "stored_exp");
+            ownerKey = new NamespacedKey(this, "owner_uuid");
+            
+            // 加载配置
+            loadConfigs();
+            
+            // 注册事件监听器
+            getServer().getPluginManager().registerEvents(this, this);
+            
+            // 注册命令
+            Objects.requireNonNull(getCommand("expbook")).setExecutor(new ExpBookCommand(this));
+            Objects.requireNonNull(getCommand("expbook")).setTabCompleter(new ExpBookTabCompleter(this));
+            
+            getLogger().info("ExpBook Plugin v" + getDescription().getVersion() + " has been enabled!");
+            getLogger().info("Database: " + databaseManager.getCurrentStorageType());
+            
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Failed to enable plugin", e);
+            getServer().getPluginManager().disablePlugin(this);
         }
-        
-        // 初始化命名空间键
-        bookIdKey = new NamespacedKey(this, "book_id");
-        bookTypeKey = new NamespacedKey(this, "book_type");
-        storedExpKey = new NamespacedKey(this, "stored_exp");
-        ownerKey = new NamespacedKey(this, "owner_uuid");
-        
-        // 加载配置
-        loadConfigs();
-        
-        // 注册事件监听器
-        getServer().getPluginManager().registerEvents(this, this);
-        
-        // 注册命令
-        Objects.requireNonNull(getCommand("expbook")).setExecutor(new ExpBookCommand(this));
-        
-        getLogger().info(languageManager.getMessage("plugin_enabled"));
     }
     
     @Override
     public void onDisable() {
-        // 关闭数据库连接
-        closeDatabaseConnection();
-        getLogger().info(languageManager.getMessage("plugin_disabled"));
+        try {
+            // 关闭数据库连接池
+            if (databaseManager != null) {
+                databaseManager.close();
+            }
+            
+            // 清除缓存
+            if (cacheManager != null) {
+                cacheManager.clearAll();
+            }
+            
+            getLogger().info("ExpBook Plugin has been disabled!");
+            
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error during plugin shutdown", e);
+        }
     }
     
+    /**
+     * 加载配置
+     */
     private void loadConfigs() {
         // 加载书籍配置
         loadBookConfigs();
         
         // 连接数据库
-        setupDatabase();
+        String storageType = getConfig().getString("database.storage_type", "sqlite");
+        String prefix = getConfig().getString("database.table_prefix", "expbook_");
+        databaseManager.initialize(storageType, prefix);
     }
     
+    /**
+     * 加载书籍配置
+     */
     private void loadBookConfigs() {
         bookConfigs.clear();
+        
+        if (getConfig().getConfigurationSection("books") == null) {
+            getLogger().warning("No books configured in config.yml!");
+            return;
+        }
+        
         for (String bookId : getConfig().getConfigurationSection("books").getKeys(false)) {
-            String path = "books." + bookId + ".";
-            BookConfig config = new BookConfig(
-                bookId,
-                getConfig().getString(path + "display_name"),
-                Material.matchMaterial(Objects.requireNonNull(getConfig().getString(path + "material"))),
-                getConfig().getInt(path + "custom_model_data"),
-                getConfig().getInt(path + "max_storage"),
-                getConfig().getString(path + "permission"),
-                getConfig().getBoolean(path + "bind_player"),
-                getConfig().getStringList(path + "lore")
-            );
-            bookConfigs.put(bookId, config);
-        }
-    }
-    
-    private void setupDatabase() {
-        // 关闭现有连接
-        closeDatabaseConnection();
-        
-        String host = getConfig().getString("database.host");
-        int port = getConfig().getInt("database.port");
-        String database = getConfig().getString("database.database");
-        String username = getConfig().getString("database.username");
-        String password = getConfig().getString("database.password");
-        String prefix = getConfig().getString("database.table_prefix");
-        
-        String url = "jdbc:mysql://" + host + ":" + port + "/" + database + "?useSSL=false";
-        
-        try {
-            connection = DriverManager.getConnection(url, username, password);
-            createTables(prefix);
-            getLogger().info(languageManager.getMessage("database_connected"));
-        } catch (SQLException e) {
-            getLogger().log(Level.SEVERE, languageManager.getMessage("database_connection_error"), e);
-        }
-    }
-    
-    private void closeDatabaseConnection() {
-        try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                getLogger().info(languageManager.getMessage("database_closed"));
+            try {
+                String path = "books." + bookId + ".";
+                
+                String materialName = getConfig().getString(path + "material");
+                if (materialName == null) {
+                    getLogger().warning("Book '" + bookId + "' has no material defined, skipping");
+                    continue;
+                }
+                
+                Material material = Material.matchMaterial(materialName);
+                if (material == null) {
+                    getLogger().warning("Book '" + bookId + "' has invalid material '" + materialName + "', skipping");
+                    continue;
+                }
+                
+                BookConfig config = new BookConfig(
+                    bookId,
+                    getConfig().getString(path + "display_name", "&aExperience Book"),
+                    material,
+                    getConfig().getInt(path + "custom_model_data", 0),
+                    getConfig().getInt(path + "max_storage", 1000),
+                    getConfig().getString(path + "permission"),
+                    getConfig().getBoolean(path + "bind_player", true),
+                    getConfig().getStringList(path + "lore")
+                );
+                
+                bookConfigs.put(bookId, config);
+                getLogger().info("Loaded book config: " + bookId);
+                
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Failed to load book config: " + bookId, e);
             }
-        } catch (SQLException e) {
-            getLogger().log(Level.SEVERE, languageManager.getMessage("database_close_error"), e);
         }
     }
     
-    private void createTables(String prefix) throws SQLException {
-        String createTable = "CREATE TABLE IF NOT EXISTS " + prefix + "books (" +
-                "id VARCHAR(36) PRIMARY KEY, " +
-                "book_type VARCHAR(50) NOT NULL, " +
-                "owner_uuid VARCHAR(36), " +
-                "stored_exp INT NOT NULL DEFAULT 0, " +
-                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-                "last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" +
-            ")";
-        
-        try (Statement stmt = connection.createStatement()) {
-            stmt.execute(createTable);
+    /**
+     * 重新加载插件配置
+     */
+    public void reloadPlugin() {
+        try {
+            configManager.reload();
+            languageManager.reload();
+            loadBookConfigs();
+            
+            // 重新初始化数据库
+            String storageType = getConfig().getString("database.storage_type", "sqlite");
+            String prefix = getConfig().getString("database.table_prefix", "expbook_");
+            databaseManager.initialize(storageType, prefix);
+            
+            // 清除缓存
+            cacheManager.clearAll();
+            
+            getLogger().info("Configuration and database connection have been reloaded!");
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Failed to reload plugin", e);
+            throw new RuntimeException("Reload failed: " + e.getMessage(), e);
         }
     }
     
-    // 创建一本新的经验之书
+    /**
+     * 创建一本新的经验之书
+     */
     public ItemStack createNewBook(Player player, String bookType) {
         BookConfig config = bookConfigs.get(bookType);
-        if (config == null) return null;
+        if (config == null) {
+            getLogger().warning("Attempted to create book with invalid type: " + bookType);
+            return null;
+        }
         
         ItemStack book = new ItemStack(config.getMaterial());
         ItemMeta meta = book.getItemMeta();
+        if (meta == null) {
+            getLogger().severe("Failed to get ItemMeta for book material: " + config.getMaterial());
+            return null;
+        }
         
         // 设置显示名称
         meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getDisplayName()));
         
         // 设置自定义模型数据
-        meta.setCustomModelData(config.getCustomModelData());
+        if (config.getCustomModelData() > 0) {
+            meta.setCustomModelData(config.getCustomModelData());
+        }
         
         // 存储NBT数据
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
@@ -192,43 +249,17 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         
         book.setItemMeta(meta);
         
-        // 在数据库中创建记录
-        createBookRecord(bookId, bookType, ownerUuid);
+        // 异步在数据库中创建记录
+        scheduler.runAsync(() -> {
+            databaseManager.createBookRecord(bookId, bookType, ownerUuid);
+        });
         
         return book;
     }
     
-    // 重新加载插件配置
-    public void reloadPlugin() {
-        configManager.reload();
-        languageManager.reload();
-        loadBookConfigs();
-        setupDatabase();
-        getLogger().info(languageManager.getMessage("config_reloaded"));
-    }
-    
-    private void createBookRecord(String bookId, String bookType, String ownerUuid) {
-        // 使用异步任务执行数据库操作
-        scheduler.runAsync(() -> {
-            // 检查数据库连接是否有效
-            if (connection == null) {
-                getLogger().severe(languageManager.getMessage("database_not_connected"));
-                return;
-            }
-            
-            String sql = "INSERT INTO " + getTablePrefix() + "books (id, book_type, owner_uuid) VALUES (?, ?, ?)";
-            
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, bookId);
-                stmt.setString(2, bookType);
-                stmt.setString(3, ownerUuid);
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                getLogger().log(Level.SEVERE, "创建书籍记录失败", e);
-            }
-        });
-    }
-    
+    /**
+     * 更新书籍的 Lore
+     */
     private void updateBookLore(ItemMeta meta, BookConfig config, int storedExp, String ownerUuid) {
         // 确保 display name 始终使用配置文件中的名称
         meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getDisplayName()));
@@ -240,8 +271,13 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
                        .replace("{max_storage}", String.valueOf(config.getMaxStorage()));
             
             if (ownerUuid != null) {
-                String ownerName = Bukkit.getOfflinePlayer(UUID.fromString(ownerUuid)).getName();
-                line = line.replace("{owner}", ownerName != null ? ownerName : languageManager.getRawMessage("owner_unknown"));
+                try {
+                    UUID uuid = UUID.fromString(ownerUuid);
+                    String ownerName = cacheManager.getPlayerName(uuid);
+                    line = line.replace("{owner}", ownerName);
+                } catch (IllegalArgumentException e) {
+                    line = line.replace("{owner}", languageManager.getRawMessage("owner_unknown"));
+                }
             } else {
                 line = line.replace("{owner}", languageManager.getRawMessage("owner_none"));
             }
@@ -252,6 +288,9 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         meta.setLore(lore);
     }
     
+    /**
+     * 玩家交互事件处理器
+     */
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
@@ -270,6 +309,10 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         
         // 获取书籍信息
         ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return;
+        }
+        
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
         
         String bookId = pdc.get(bookIdKey, PersistentDataType.STRING);
@@ -278,7 +321,7 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         String ownerUuid = pdc.get(ownerKey, PersistentDataType.STRING);
         
         // 基本数据校验
-        if (bookType == null || storedExp == null) {
+        if (bookId == null || bookType == null || storedExp == null) {
             confiscateBook(player, item, "invalid_book_nbt");
             return;
         }
@@ -302,99 +345,99 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
             return;
         }
         
+        // 检查操作冷却
+        if (cacheManager.isOperationOnCooldown(player.getUniqueId(), bookId)) {
+            // 静默拒绝，避免刷屏
+            return;
+        }
+        
         // 记录操作类型
         final boolean isStoring = player.isSneaking();
         
-        // 异步验证书籍完整性
-        verifyBookIntegrityAsync(bookId, storedExp, ownerUuid, result -> {
-            if (!result) {
-                // 验证失败，在玩家所在区域执行没收操作
-                scheduler.runAtEntity(player, () -> {
-                    confiscateBook(player, item, "invalid_book");
-                });
+        // 检查是否需要验证（使用缓存优化）
+        boolean needsVerification = !cacheManager.isBookRecentlyVerified(bookId);
+        
+        if (needsVerification) {
+            // 异步验证书籍完整性
+            verifyBookIntegrityAsync(bookId, storedExp, ownerUuid, result -> {
+                if (!result) {
+                    // 验证失败，在玩家所在区域执行没收操作
+                    scheduler.runAtEntity(player, () -> {
+                        confiscateBook(player, item, "invalid_book");
+                    });
+                    return;
+                }
+                
+                // 标记已验证
+                cacheManager.markBookVerified(bookId);
+                
+                // 验证成功，执行操作
+                executeBookOperation(player, item, bookId, isStoring, config);
+            });
+        } else {
+            // 跳过验证，直接执行操作
+            executeBookOperation(player, item, bookId, isStoring, config);
+        }
+    }
+    
+    /**
+     * 执行书籍操作（存储或提取经验）
+     */
+    private void executeBookOperation(Player player, ItemStack item, String bookId, 
+                                     boolean isStoring, BookConfig config) {
+        scheduler.runAtEntity(player, () -> {
+            // 再次检查物品是否还在手中（防止玩家在验证期间切换物品）
+            ItemStack currentItem = player.getInventory().getItemInMainHand();
+            if (!isSameBook(currentItem, bookId)) {
+                currentItem = player.getInventory().getItemInOffHand();
+                if (!isSameBook(currentItem, bookId)) {
+                    return; // 物品已经不在手中，取消操作
+                }
+            }
+            
+            // 重新获取最新的物品数据
+            ItemMeta currentMeta = currentItem.getItemMeta();
+            if (currentMeta == null) {
                 return;
             }
             
-            // 验证成功，在玩家所在区域执行经验操作
-            scheduler.runAtEntity(player, () -> {
-                // 再次检查物品是否还在手中（防止玩家在验证期间切换物品）
-                ItemStack currentItem = player.getInventory().getItemInMainHand();
-                if (!isSameBook(currentItem, bookId)) {
-                    currentItem = player.getInventory().getItemInOffHand();
-                    if (!isSameBook(currentItem, bookId)) {
-                        return; // 物品已经不在手中，取消操作
-                    }
-                }
-                
-                // 重新获取最新的物品数据
-                ItemMeta currentMeta = currentItem.getItemMeta();
-                PersistentDataContainer currentPdc = currentMeta.getPersistentDataContainer();
-                Integer currentStoredExp = currentPdc.get(storedExpKey, PersistentDataType.INTEGER);
-                
-                if (currentStoredExp == null) {
-                    return; // 数据异常，取消操作
-                }
-                
-                // 处理经验存储/提取
-                if (isStoring) {
-                    storeExperience(player, currentItem, currentMeta, currentPdc, bookId, currentStoredExp, config);
-                } else {
-                    withdrawExperience(player, currentItem, currentMeta, currentPdc, bookId, currentStoredExp, config);
-                }
-            });
+            PersistentDataContainer currentPdc = currentMeta.getPersistentDataContainer();
+            Integer currentStoredExp = currentPdc.get(storedExpKey, PersistentDataType.INTEGER);
+            
+            if (currentStoredExp == null) {
+                return; // 数据异常，取消操作
+            }
+            
+            // 标记操作冷却
+            cacheManager.markOperationExecuted(player.getUniqueId(), bookId);
+            
+            // 处理经验存储/提取
+            if (isStoring) {
+                storeExperience(player, currentItem, currentMeta, currentPdc, bookId, currentStoredExp, config);
+            } else {
+                withdrawExperience(player, currentItem, currentMeta, currentPdc, bookId, currentStoredExp, config);
+            }
         });
     }
     
+    /**
+     * 没收无效的书籍
+     */
     private void confiscateBook(Player player, ItemStack item, String reasonKey) {
         player.getInventory().removeItem(item);
         sendMessage(player, reasonKey);
-        getLogger().warning("Confiscated experience book from " + player.getName() + ", reason: " + reasonKey);
+        getLogger().warning("Confiscated experience book from " + player.getName() + " - Reason: " + reasonKey);
     }
     
     /**
      * 异步验证书籍完整性
-     * @param bookId 书籍ID
-     * @param storedExp 物品NBT中存储的经验值
-     * @param ownerUuid 物品NBT中存储的所有者UUID
-     * @param callback 验证完成后的回调，参数为验证结果（true=通过，false=失败）
      */
     private void verifyBookIntegrityAsync(String bookId, int storedExp, String ownerUuid, 
                                          java.util.function.Consumer<Boolean> callback) {
-        if (bookId == null) {
-            callback.accept(false);
-            return;
-        }
-        
         // 异步执行数据库查询
         scheduler.runAsync(() -> {
-            // 检查数据库连接是否有效
-            if (connection == null) {
-                getLogger().severe(languageManager.getMessage("database_not_connected"));
-                callback.accept(false);
-                return;
-            }
-            
-            boolean result = false;
-            String sql = "SELECT stored_exp, owner_uuid FROM " + getTablePrefix() + "books WHERE id = ?";
-            
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, bookId);
-                ResultSet rs = stmt.executeQuery();
-                
-                if (rs.next()) {
-                    int dbStoredExp = rs.getInt("stored_exp");
-                    String dbOwnerUuid = rs.getString("owner_uuid");
-                    
-                    // 比较数据库中的值与物品NBT数据
-                    result = dbStoredExp == storedExp && Objects.equals(dbOwnerUuid, ownerUuid);
-                }
-            } catch (SQLException e) {
-                getLogger().log(Level.SEVERE, "验证书籍完整性失败", e);
-            }
-            
-            // 将结果传递给回调
-            final boolean finalResult = result;
-            callback.accept(finalResult);
+            DatabaseManager.BookData bookData = databaseManager.verifyBookIntegrity(bookId, storedExp, ownerUuid);
+            callback.accept(bookData != null);
         });
     }
     
@@ -402,10 +445,14 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
      * 检查两个物品是否是同一本书
      */
     private boolean isSameBook(ItemStack item, String bookId) {
-        if (item == null || bookId == null) return false;
+        if (item == null || bookId == null) {
+            return false;
+        }
         
         ItemMeta meta = item.getItemMeta();
-        if (meta == null) return false;
+        if (meta == null) {
+            return false;
+        }
         
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
         String itemBookId = pdc.get(bookIdKey, PersistentDataType.STRING);
@@ -413,6 +460,26 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         return bookId.equals(itemBookId);
     }
     
+    /**
+     * 检查物品是否为经验之书
+     */
+    private boolean isExpBook(ItemStack item) {
+        if (item == null) {
+            return false;
+        }
+        
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        return pdc.has(bookTypeKey, PersistentDataType.STRING);
+    }
+    
+    /**
+     * 存储经验到书中
+     */
     private void storeExperience(Player player, ItemStack item, ItemMeta meta, 
                                 PersistentDataContainer pdc, String bookId, 
                                 int storedExp, BookConfig config) {
@@ -443,14 +510,22 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         
         item.setItemMeta(meta);
         
-        // 更新数据库
-        updateBookStorage(bookId, newStoredExp);
+        // 异步更新数据库
+        scheduler.runAsync(() -> {
+            databaseManager.updateBookStorage(bookId, newStoredExp);
+        });
+        
+        // 清除验证缓存，强制下次验证
+        cacheManager.clearBookCache(bookId);
         
         Map<String, String> params = new HashMap<>();
         params.put("{amount}", String.valueOf(expToStore));
         sendMessage(player, "stored_exp", params);
     }
     
+    /**
+     * 从书中提取经验
+     */
     private void withdrawExperience(Player player, ItemStack item, ItemMeta meta, 
                                    PersistentDataContainer pdc, String bookId, 
                                    int storedExp, BookConfig config) {
@@ -459,7 +534,7 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
             return;
         }
         
-        // 提取全部经验（不再支持提取一半，避免逻辑混乱）
+        // 提取全部经验
         int expToWithdraw = storedExp;
         
         player.giveExp(expToWithdraw);
@@ -473,46 +548,22 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         
         item.setItemMeta(meta);
         
-        // 更新数据库
-        updateBookStorage(bookId, newStoredExp);
+        // 异步更新数据库
+        scheduler.runAsync(() -> {
+            databaseManager.updateBookStorage(bookId, newStoredExp);
+        });
+        
+        // 清除验证缓存，强制下次验证
+        cacheManager.clearBookCache(bookId);
         
         Map<String, String> params = new HashMap<>();
         params.put("{amount}", String.valueOf(expToWithdraw));
         sendMessage(player, "withdrawn_exp", params);
     }
     
-    private void updateBookStorage(String bookId, int newStoredExp) {
-        // 使用异步任务执行数据库更新操作
-        scheduler.runAsync(() -> {
-            // 检查数据库连接是否有效
-            if (connection == null) {
-                getLogger().severe(languageManager.getMessage("database_not_connected"));
-                return;
-            }
-            
-            String sql = "UPDATE " + getTablePrefix() + "books SET stored_exp = ? WHERE id = ?";
-            
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setInt(1, newStoredExp);
-                stmt.setString(2, bookId);
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                getLogger().log(Level.SEVERE, "更新书籍存储失败", e);
-            }
-        });
-    }
-    
-    private boolean isExpBook(ItemStack item) {
-        if (item == null) return false;
-        
-        ItemMeta meta = item.getItemMeta();
-        if (meta == null) return false;
-        
-        PersistentDataContainer pdc = meta.getPersistentDataContainer();
-        return pdc.has(bookTypeKey, PersistentDataType.STRING);
-    }
-    
-    
+    /**
+     * 获取玩家的总经验值
+     */
     private int getTotalExperience(Player player) {
         int level = player.getLevel();
         int totalExp = 0;
@@ -526,7 +577,10 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         totalExp += Math.round(player.getExp() * getExpToLevel(level));
         return totalExp;
     }
-    // 计算达到指定等级所需的经验（保持不变）
+    
+    /**
+     * 计算达到指定等级所需的经验
+     */
     private int getExpToLevel(int level) {
         if (level <= 15) {
             return 2 * level + 7;
@@ -537,11 +591,51 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         }
     }
     
-    private String getTablePrefix() {
-        return getConfig().getString("database.table_prefix");
+    /**
+     * 发送消息给玩家（带占位符）
+     */
+    private void sendMessage(Player player, String key, Map<String, String> replacements) {
+        player.sendMessage(languageManager.getMessage(key, replacements));
     }
     
-    // 书籍配置类
+    /**
+     * 发送消息给玩家（无占位符）
+     */
+    private void sendMessage(Player player, String key) {
+        player.sendMessage(languageManager.getMessage(key));
+    }
+    
+    /**
+     * 获取语言管理器（用于其他类访问）
+     */
+    public LanguageManager getLanguageManager() {
+        return languageManager;
+    }
+    
+    /**
+     * 获取所有书籍类型（用于 Tab Completer）
+     */
+    public List<String> getBookTypes() {
+        return new ArrayList<>(bookConfigs.keySet());
+    }
+    
+    /**
+     * 获取缓存管理器
+     */
+    public CacheManager getCacheManager() {
+        return cacheManager;
+    }
+    
+    /**
+     * 获取数据库管理器
+     */
+    public DatabaseManager getDatabaseManager() {
+        return databaseManager;
+    }
+    
+    /**
+     * 书籍配置类
+     */
     public static class BookConfig {
         private final String id;
         private final String displayName;
@@ -598,7 +692,9 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         }
     }
     
-    // 命令处理类
+    /**
+     * 命令处理类
+     */
     private static class ExpBookCommand implements CommandExecutor {
         
         private final ExpBookPlugin plugin;
@@ -632,12 +728,14 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
             sender.sendMessage(plugin.languageManager.getMessage("command_help_give"));
             sender.sendMessage(plugin.languageManager.getMessage("command_help_list"));
             sender.sendMessage(plugin.languageManager.getMessage("command_help_reload"));
-            if (sender.hasPermission("expbook.admin")) {
-                sender.sendMessage(plugin.languageManager.getMessage("command_help_check"));
-            }
         }
         
         private boolean giveBook(CommandSender sender, String[] args) {
+            if (!sender.hasPermission("expbook.give") && !sender.hasPermission("expbook.admin")) {
+                sender.sendMessage(plugin.languageManager.getMessage("no_permission"));
+                return true;
+            }
+            
             if (!(sender instanceof Player) && args.length < 3) {
                 sender.sendMessage(plugin.languageManager.getMessage("command_usage_console"));
                 return true;
@@ -693,7 +791,7 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
         }
         
         private boolean reloadPlugin(CommandSender sender) {
-            if (!sender.hasPermission("expbook.reload")) {
+            if (!sender.hasPermission("expbook.reload") && !sender.hasPermission("expbook.admin")) {
                 sender.sendMessage(plugin.languageManager.getMessage("no_reload_permission"));
                 return true;
             }
@@ -709,20 +807,6 @@ public class ExpBookPlugin extends JavaPlugin implements Listener {
             }
             return true;
         }
-    }
-    
-    private void sendMessage(Player player, String key, Map<String, String> replacements) {
-        player.sendMessage(languageManager.getMessage(key, replacements));
-    }
-    
-    // 添加重载方法：无占位符
-    private void sendMessage(Player player, String key) {
-        player.sendMessage(languageManager.getMessage(key));
-    }
-    
-    // 获取语言管理器（用于其他类访问）
-    public LanguageManager getLanguageManager() {
-        return languageManager;
     }
 
 }
